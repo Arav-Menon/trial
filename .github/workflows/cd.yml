@@ -18,7 +18,13 @@ jobs:
       - name: Detect Changed Files
         id: changes
         run: |
-          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          BEFORE="${{ github.event.before }}"
+
+          if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+            FILES=$(git diff --name-only 4b825dc642cb6eb9a060e54bf899d15006303f28 ${{ github.sha }})
+          else
+            FILES=$(git diff --name-only "$BEFORE" ${{ github.sha }})
+          fi
 
           echo "$FILES"
 
@@ -92,12 +98,13 @@ jobs:
         env:
           PAT: ${{ secrets.PAT }}
         run: |
-          git clone https://x-access-token:${PAT}@github.com/Arav-Menon/staging-ops.git
+          git clone https://github.com/Arav-Menon/staging-ops.git
           cd staging-ops
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          git checkout prod
 
           if [[ "${{ steps.changes.outputs.backend }}" == "true" ]]; then
             yq -i '.image.tag = "${{ github.sha }}"' prod/trial/backend/values.yaml
@@ -113,6 +120,9 @@ jobs:
 
           git add .
 
-          git diff --cached --quiet || git commit -m "Update image tags to ${{ github.sha }}"
-
-          git push origin prod
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update image tags to ${{ github.sha }}"
+            git push origin prod
+          fi
