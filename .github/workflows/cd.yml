@@ -5,6 +5,18 @@ on:
     branches:
       - prod
 
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DOCKER_REGISTRY: aravmenon12
+  STAGING_OPS_REPO: https://github.com/Arav-Menon/staging-ops.git
+  EMPTY_TREE_SHA: 4b825dc642cb6eb9a060e54bf899d15006303f28
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -18,31 +30,51 @@ jobs:
       - name: Detect Changed Files
         id: changes
         run: |
+          set -euo pipefail
+
           BEFORE="${{ github.event.before }}"
 
           if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
-            FILES=$(git diff --name-only 4b825dc642cb6eb9a060e54bf899d15006303f28 ${{ github.sha }})
+            FILES=$(git diff --name-only "$EMPTY_TREE_SHA" "${{ github.sha }}")
           else
-            FILES=$(git diff --name-only "$BEFORE" ${{ github.sha }})
+            FILES=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
           fi
 
+          echo "Changed files:"
           echo "$FILES"
+          echo ""
 
-          echo "backend=false" >> $GITHUB_OUTPUT
-          echo "frontend=false" >> $GITHUB_OUTPUT
-          echo "ws=false" >> $GITHUB_OUTPUT
-
-          if echo "$FILES" | grep -q "^backend/"; then
-            echo "backend=true" >> $GITHUB_OUTPUT
+          SHARED=false
+          if echo "$FILES" | grep -qE \
+            '^(package\.json|package-lock\.json|pnpm-lock\.yaml|turbo\.json|tsconfig.*\.json|\.github/workflows/.*|\.eslintrc.*|\.prettierrc.*)$'; then
+            SHARED=true
+            echo "Shared config changed — all services will rebuild."
           fi
 
-          if echo "$FILES" | grep -q "^frontend/"; then
-            echo "frontend=true" >> $GITHUB_OUTPUT
+          BACKEND=false
+          if [[ "$SHARED" == "true" ]] || echo "$FILES" | grep -qE '^(backend/|dockerfile/be\.dockerfile)'; then
+            BACKEND=true
           fi
 
-          if echo "$FILES" | grep -q "^ws-server/"; then
-            echo "ws=true" >> $GITHUB_OUTPUT
+          FRONTEND=false
+          if [[ "$SHARED" == "true" ]] || echo "$FILES" | grep -qE '^(frontend/|dockerfile/fe\.dockerfile)'; then
+            FRONTEND=true
           fi
+
+          WS=false
+          if [[ "$SHARED" == "true" ]] || echo "$FILES" | grep -qE '^(ws-server/|dockerfile/ws\.dockerfile)'; then
+            WS=true
+          fi
+
+          echo "backend=$BACKEND" >> "$GITHUB_OUTPUT"
+          echo "frontend=$FRONTEND" >> "$GITHUB_OUTPUT"
+          echo "ws=$WS" >> "$GITHUB_OUTPUT"
+
+          echo ""
+          echo "Detected changes:"
+          echo "  backend  = $BACKEND"
+          echo "  frontend = $FRONTEND"
+          echo "  ws       = $WS"
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -60,9 +92,9 @@ jobs:
           context: .
           file: dockerfile/be.dockerfile
           push: true
-          tags: aravmenon12/trial-be:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ env.DOCKER_REGISTRY }}/trial-be:${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
 
       - name: Build & Push Frontend
         if: steps.changes.outputs.frontend == 'true'
@@ -71,12 +103,12 @@ jobs:
           context: .
           file: dockerfile/fe.dockerfile
           push: true
-          tags: aravmenon12/trial-fe:${{ github.sha }}
+          tags: ${{ env.DOCKER_REGISTRY }}/trial-fe:${{ github.sha }}
           build-args: |
             NEXT_PUBLIC_API_URL=https://api-trial.arav.space
             NEXT_PUBLIC_WS_URL=wss://ws-api.arav.space
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
 
       - name: Build & Push WS
         if: steps.changes.outputs.ws == 'true'
@@ -85,12 +117,13 @@ jobs:
           context: .
           file: dockerfile/ws.dockerfile
           push: true
-          tags: aravmenon12/trial-ws:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ env.DOCKER_REGISTRY }}/trial-ws:${{ github.sha }}
+          cache-from: type=gha,scope=ws
+          cache-to: type=gha,scope=ws,mode=max
 
       - name: Install yq
         run: |
+          set -euo pipefail
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
@@ -98,7 +131,8 @@ jobs:
         env:
           PAT: ${{ secrets.PAT }}
         run: |
-          git clone https://github.com/Arav-Menon/staging-ops.git
+          set -euo pipefail
+          git clone "$STAGING_OPS_REPO"
           cd staging-ops
 
           git config user.name "github-actions[bot]"
@@ -106,23 +140,47 @@ jobs:
 
           git checkout prod
 
+          CHANGED=false
+
           if [[ "${{ steps.changes.outputs.backend }}" == "true" ]]; then
-            yq -i '.image.tag = "${{ github.sha }}"' prod/trial/backend/values.yaml
+            yq -i ".image.tag = \"${{ github.sha }}\"" prod/trial/backend/values.yaml
+            CHANGED=true
           fi
 
           if [[ "${{ steps.changes.outputs.frontend }}" == "true" ]]; then
-            yq -i '.image.tag = "${{ github.sha }}"' prod/trial/frontend/values.yaml
+            yq -i ".image.tag = \"${{ github.sha }}\"" prod/trial/frontend/values.yaml
+            CHANGED=true
           fi
 
           if [[ "${{ steps.changes.outputs.ws }}" == "true" ]]; then
-            yq -i '.image.tag = "${{ github.sha }}"' prod/trial/ws/values.yaml
+            yq -i ".image.tag = \"${{ github.sha }}\"" prod/trial/ws/values.yaml
+            CHANGED=true
+          fi
+
+          if [[ "$CHANGED" == "false" ]]; then
+            echo "No image tags updated. Nothing to commit."
+            exit 0
           fi
 
           git add .
 
           if git diff --cached --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Update image tags to ${{ github.sha }}"
-            git push origin prod
+            echo "No changes after staging. Nothing to commit."
+            exit 0
           fi
+
+          git commit -m "Update image tags to ${{ github.sha }}"
+
+          MAX_RETRIES=3
+          for ATTEMPT in $(seq 1 "$MAX_RETRIES"); do
+            echo "Push attempt $ATTEMPT/$MAX_RETRIES..."
+            if git push origin prod; then
+              echo "Push succeeded."
+              exit 0
+            fi
+            echo "Push failed. Retrying in 5s..."
+            sleep 5
+          done
+
+          echo "Push failed after $MAX_RETRIES attempts."
+          exit 1
