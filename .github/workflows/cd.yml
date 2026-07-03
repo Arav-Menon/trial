@@ -18,7 +18,13 @@ jobs:
       - name: Detect Changed Files
         id: changes
         run: |
-          FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          BEFORE="${{ github.event.before }}"
+
+          if [[ "$BEFORE" == "0000000000000000000000000000000000000000" ]]; then
+            FILES=$(git diff --name-only 4b825dc642cb6eb9a060e54bf899d15006303f28 ${{ github.sha }})
+          else
+            FILES=$(git diff --name-only "$BEFORE" ${{ github.sha }})
+          fi
 
           echo "$FILES"
 
