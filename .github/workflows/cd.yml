@@ -104,6 +104,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          git checkout prod
 
           if [[ "${{ steps.changes.outputs.backend }}" == "true" ]]; then
             yq -i '.image.tag = "${{ github.sha }}"' prod/trial/backend/values.yaml
@@ -119,6 +120,9 @@ jobs:
 
           git add .
 
-          git diff --cached --quiet || git commit -m "Update image tags to ${{ github.sha }}"
-
-          git push origin prod
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update image tags to ${{ github.sha }}"
+            git push origin prod
+          fi
