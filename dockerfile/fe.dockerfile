@@ -1,4 +1,4 @@
-FROM oven/bun:latest AS base
+FROM oven/bun:latest
 
 WORKDIR /app
 
@@ -10,11 +10,21 @@ COPY frontend/ frontend/
 
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_WS_URL
+
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 
 RUN cd frontend && bun run build
 
+# Create non-root user
+RUN groupadd -r bungroup && \
+    useradd -r -g bungroup bunuser
+
+# Give ownership
+RUN chown -R bunuser:bungroup /app
+
+USER bunuser
+
 EXPOSE 3000
 
-CMD [ "bun", "run", "--cwd", "frontend", "start" ]
+CMD ["bun", "run", "--cwd", "frontend", "start"]
