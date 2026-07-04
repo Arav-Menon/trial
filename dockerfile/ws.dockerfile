@@ -2,9 +2,16 @@ FROM oven/bun:latest AS base
 
 WORKDIR /app
 
-# Copy only what's needed: ws-server source + db generated Prisma client
+# Copy db package (schema + deps) to generate Prisma client
+COPY db/package.json db/bun.lock* db/
+COPY db/prisma db/prisma
+
+RUN cd db && bun install
+
+RUN cd db && bunx prisma generate
+
+# Copy ws-server deps first for layer caching
 COPY ws-server/package.json ws-server/bun.lock* ws-server/
-COPY db/generated/prisma/ db/generated/prisma/
 
 RUN cd ws-server && bun install
 
