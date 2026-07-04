@@ -132,7 +132,7 @@ jobs:
           PAT: ${{ secrets.PAT }}
         run: |
           set -euo pipefail
-          git clone "$STAGING_OPS_REPO"
+          git clone https://x-access-token:${PAT}@github.com/Arav-Menon/staging-ops.git
           cd staging-ops
 
           git config user.name "github-actions[bot]"
