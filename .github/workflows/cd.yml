@@ -138,7 +138,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git checkout prod
+          git checkout -B main origin/main
 
           CHANGED=false
 
@@ -174,7 +174,7 @@ jobs:
           MAX_RETRIES=3
           for ATTEMPT in $(seq 1 "$MAX_RETRIES"); do
             echo "Push attempt $ATTEMPT/$MAX_RETRIES..."
-            if git push origin prod; then
+            if git push origin main; then
               echo "Push succeeded."
               exit 0
             fi
