@@ -21,9 +21,9 @@ RUN groupadd -r bungroup && \
     useradd -r -g bungroup bunuser
 
 # Give ownership
-RUN chown -R bunuser:bungroup /app
+RUN chown -R 1001:1001 /app
 
-USER bunuser
+USER 1001
 
 EXPOSE 3000
 
