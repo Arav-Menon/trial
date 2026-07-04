@@ -17,6 +17,14 @@ RUN cd ws-server && bun install
 
 COPY ws-server/ ws-server/
 
+RUN groupadd -r bungroup && \
+    useradd -r -g bungroup bunuser
+
+# Give ownership
+RUN chown -R 1001:1001 /app
+
+USER 1001
+
 EXPOSE 3002
 
 CMD [ "bun", "run", "--cwd", "ws-server", "start" ]
