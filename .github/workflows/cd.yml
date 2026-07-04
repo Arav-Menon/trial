@@ -153,7 +153,7 @@ jobs:
           fi
 
           if [[ "${{ steps.changes.outputs.ws }}" == "true" ]]; then
-            yq -i ".image.tag = \"${{ github.sha }}\"" prod/trial/ws/values.yaml
+            yq -i ".image.tag = \"${{ github.sha }}\"" prod/trial/websocket/values.yaml
             CHANGED=true
           fi
 
